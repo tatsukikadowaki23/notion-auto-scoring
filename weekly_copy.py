@@ -115,6 +115,7 @@ def copy_nissho_records(sunday: str, thursday: str):
             "結果・成果": {"rich_text": props["結果・成果"]["rich_text"]},
             "メモ・備考": {"rich_text": props["メモ・備考"]["rich_text"]},
             "作成者": {"people": [{"id": p["id"]} for p in props["作成者"]["people"]]},
+            "アーカイブ状態": {"select": {"name": "アーカイブ状態"}},
         }
         notion_request("POST", "/pages", {
             "parent": {"database_id": NISSHO_REF_DB},
@@ -159,6 +160,7 @@ def copy_shyuho_records(monday: str, last_sunday: str):
             "作成日": {"date": props["作成日"]["date"]},
             "作成者": {"people": [{"id": p["id"]} for p in props["作成者"]["people"]]},
             "ステータス": {"select": props["ステータス"]["select"]},
+            "アーカイブ状態": {"select": {"name": "アーカイブ済"}},
         }
         notion_request("POST", "/pages", {
             "parent": {"database_id": SHYUHO_REF_DB},
