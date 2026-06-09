@@ -1,9 +1,10 @@
 """
 weekly_copy.py
 週次コピー処理：入力DB → 参照DBへのコピー
-対象：直前の月曜〜日曜（土曜0時実行を想定）
-実行方法：python weekly_copy.py
-GitHub Actions等での定期実行（毎週土曜0時 JST）を想定
+日報対象：今週日曜〜木曜、アーカイブ状態「通常」
+週報対象：今週月曜〜日曜、アーカイブ状態「通常」
+処理後：入力DBの対象レコードをアーカイブ済に更新 → ゴミ箱に移動
+実行タイミング：毎週土曜0時（JST）
 """
 
 import os
@@ -44,13 +45,20 @@ def notion_request(method: str, path: str, body: dict = None) -> dict:
         raise
 
 
-def get_target_week() -> tuple[str, str]:
-    """土曜0時実行時点での直前月曜〜日曜を返す（JST）"""
+def get_dates() -> dict:
+    """土曜0時実行時点での各期間を返す（JST）"""
     now = datetime.now(JST)
-    # 土曜=5なので、6日前が月曜
-    monday = now - timedelta(days=6)
-    sunday = now - timedelta(days=1)
-    return monday.strftime("%Y-%m-%d"), sunday.strftime("%Y-%m-%d")
+    # 土曜=5
+    monday   = now - timedelta(days=5)  # 今週月曜
+    sunday   = now - timedelta(days=6)  # 今週日曜
+    thursday = now - timedelta(days=2)  # 今週木曜
+    last_sunday = now - timedelta(days=1)  # 週報の終端（=昨日の金曜ではなく日曜）
+    return {
+        "monday":      monday.strftime("%Y-%m-%d"),
+        "sunday":      sunday.strftime("%Y-%m-%d"),
+        "thursday":    thursday.strftime("%Y-%m-%d"),
+        "last_sunday": last_sunday.strftime("%Y-%m-%d"),
+    }
 
 
 def query_db(database_id: str, filter_body: dict) -> list:
@@ -77,104 +85,105 @@ def get_text(prop) -> str:
     return ""
 
 
-def already_copied(ref_db_id: str, source_page_id: str) -> bool:
-    """参照DBに同じソースページIDのレコードが既にあるか確認（重複防止）"""
-    # タイトルで検索（完全一致は難しいためIDをタイトルに含める運用は任意）
-    # シンプルに全件取得してチェック
-    body = {"page_size": 100}
-    res = notion_request("POST", f"/databases/{ref_db_id}/query", body)
-    for page in res.get("results", []):
-        # コピー元IDをメモ・備考またはAI活用に埋め込む運用でも可だが、
-        # ここではタイトルの一致でチェック
-        pass
-    return False  # 簡易版：重複チェックはタイトル一致で後続処理に委ねる
+def archive_page(page_id: str):
+    """入力DBのレコードをゴミ箱に移動"""
+    notion_request("PATCH", f"/pages/{page_id}", {"in_trash": True})
 
 
-def copy_nissho_records(monday: str, sunday: str):
-    """日報入力DB → 日報参照DBへコピー（対象週のアーカイブ済レコード）"""
-    print(f"[日報] {monday} 〜 {sunday} のレコードを取得中...")
+def copy_nissho_records(sunday: str, thursday: str):
+    """日報入力DB → 日報参照DBへコピー（日曜〜木曜対象）"""
+    print(f"[日報] {sunday} 〜 {thursday} のレコードを取得中...")
 
     filter_body = {
         "and": [
-            {"property": "日付", "date": {"on_or_after": monday}},
-            {"property": "日付", "date": {"on_or_before": sunday}},
-            {"property": "アーカイブ状態", "select": {"equals": "アーカイブ状態"}},
+            {"property": "日付", "date": {"on_or_after": sunday}},
+            {"property": "日付", "date": {"on_or_before": thursday}},
+            {"property": "アーカイブ状態", "select": {"equals": "通常"}},
         ]
     }
     pages = query_db(NISSHO_INPUT_DB, filter_body)
     print(f"[日報] {len(pages)}件取得")
 
     for page in pages:
+        page_id = page["id"]
         props = page["properties"]
         new_props = {
-            "アクション内容": {
-                "title": props["アクション内容"]["title"]
-            },
+            "アクション内容": {"title": props["アクション内容"]["title"]},
             "日付": {"date": props["日付"]["date"]},
             "AI活用": {"rich_text": props["AI活用"]["rich_text"]},
             "相手・関係者（会社名）": {"rich_text": props["相手・関係者（会社名）"]["rich_text"]},
             "結果・成果": {"rich_text": props["結果・成果"]["rich_text"]},
             "メモ・備考": {"rich_text": props["メモ・備考"]["rich_text"]},
-            "アーカイブ状態": {"select": props["アーカイブ状態"]["select"]},
             "作成者": {"people": [{"id": p["id"]} for p in props["作成者"]["people"]]},
         }
-        body = {
+        notion_request("POST", "/pages", {
             "parent": {"database_id": NISSHO_REF_DB},
             "properties": new_props,
-        }
-        notion_request("POST", "/pages", body)
+        })
         title = get_text(props["アクション内容"])
         print(f"  [コピー完了] {title}")
 
-    print(f"[日報] コピー完了: {len(pages)}件")
+        # アーカイブ済に更新 → ゴミ箱に移動
+        notion_request("PATCH", f"/pages/{page_id}", {
+            "properties": {"アーカイブ状態": {"select": {"name": "アーカイブ状態"}}}
+        })
+        archive_page(page_id)
+        print(f"  [削除完了] {title}")
+
+    print(f"[日報] 処理完了: {len(pages)}件")
 
 
-def copy_shyuho_records(monday: str, sunday: str):
-    """週報入力DB → 週報参照DBへコピー（対象週のアーカイブ済レコード）"""
-    print(f"[週報] {monday} 〜 {sunday} のレコードを取得中...")
+def copy_shyuho_records(monday: str, last_sunday: str):
+    """週報入力DB → 週報参照DBへコピー（月曜〜日曜対象）"""
+    print(f"[週報] {monday} 〜 {last_sunday} のレコードを取得中...")
 
     filter_body = {
         "and": [
             {"property": "作成日", "date": {"on_or_after": monday}},
-            {"property": "作成日", "date": {"on_or_before": sunday}},
-            {"property": "アーカイブ状態", "select": {"equals": "アーカイブ済"}},
+            {"property": "作成日", "date": {"on_or_before": last_sunday}},
+            {"property": "アーカイブ状態", "select": {"equals": "通常"}},
         ]
     }
     pages = query_db(SHYUHO_INPUT_DB, filter_body)
     print(f"[週報] {len(pages)}件取得")
 
     for page in pages:
+        page_id = page["id"]
         props = page["properties"]
         new_props = {
-            "タイトル": {
-                "title": props["タイトル"]["title"]
-            },
+            "タイトル": {"title": props["タイトル"]["title"]},
             "Y（やったこと）": {"rich_text": props["Y（やったこと）"]["rich_text"]},
             "W（わかったこと）": {"rich_text": props["W（わかったこと）"]["rich_text"]},
             "T（次にやること）": {"rich_text": props["T（次にやること）"]["rich_text"]},
             "AI活用": {"rich_text": props["AI活用"]["rich_text"]},
             "作成日": {"date": props["作成日"]["date"]},
             "作成者": {"people": [{"id": p["id"]} for p in props["作成者"]["people"]]},
-            "アーカイブ状態": {"select": props["アーカイブ状態"]["select"]},
             "ステータス": {"select": props["ステータス"]["select"]},
         }
-        body = {
+        notion_request("POST", "/pages", {
             "parent": {"database_id": SHYUHO_REF_DB},
             "properties": new_props,
-        }
-        notion_request("POST", "/pages", body)
+        })
         title = get_text(props["タイトル"])
         print(f"  [コピー完了] {title}")
 
-    print(f"[週報] コピー完了: {len(pages)}件")
+        # アーカイブ済に更新 → ゴミ箱に移動
+        notion_request("PATCH", f"/pages/{page_id}", {
+            "properties": {"アーカイブ状態": {"select": {"name": "アーカイブ済"}}}
+        })
+        archive_page(page_id)
+        print(f"  [削除完了] {title}")
+
+    print(f"[週報] 処理完了: {len(pages)}件")
 
 
 def main():
-    monday, sunday = get_target_week()
+    dates = get_dates()
     print(f"=== 週次コピー処理開始 ===")
-    print(f"対象週: {monday} 〜 {sunday}")
-    copy_nissho_records(monday, sunday)
-    copy_shyuho_records(monday, sunday)
+    print(f"日報対象: {dates['sunday']} 〜 {dates['thursday']}")
+    print(f"週報対象: {dates['monday']} 〜 {dates['last_sunday']}")
+    copy_nissho_records(dates["sunday"], dates["thursday"])
+    copy_shyuho_records(dates["monday"], dates["last_sunday"])
     print(f"=== 週次コピー処理完了 ===")
 
 
