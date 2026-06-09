@@ -115,7 +115,7 @@ def copy_nissho_records(sunday: str, thursday: str):
             "結果・成果": {"rich_text": props["結果・成果"]["rich_text"]},
             "メモ・備考": {"rich_text": props["メモ・備考"]["rich_text"]},
             "作成者": {"people": [{"id": p["id"]} for p in props["作成者"]["people"]]},
-            "アーカイブ状態": {"select": {"name": "アーカイブ状態"}},
+            "アーカイブ状態": {"select": {"name": "アーカイブ済"}},
         }
         notion_request("POST", "/pages", {
             "parent": {"database_id": NISSHO_REF_DB},
@@ -126,7 +126,7 @@ def copy_nissho_records(sunday: str, thursday: str):
 
         # アーカイブ済に更新 → ゴミ箱に移動
         notion_request("PATCH", f"/pages/{page_id}", {
-            "properties": {"アーカイブ状態": {"select": {"name": "アーカイブ状態"}}}
+            "properties": {"アーカイブ状態": {"select": {"name": "アーカイブ済"}}}
         })
         archive_page(page_id)
         print(f"  [削除完了] {title}")
