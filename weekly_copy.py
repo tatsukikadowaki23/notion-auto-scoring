@@ -116,7 +116,7 @@ def copy_nissho_records(monday: str, sunday: str):
             "結果・成果": {"rich_text": props["結果・成果"]["rich_text"]},
             "メモ・備考": {"rich_text": props["メモ・備考"]["rich_text"]},
             "アーカイブ状態": {"select": props["アーカイブ状態"]["select"]},
-            "作成者": {"people": props["作成者"]["people"]},
+            "作成者": {"people": [{"id": p["id"]} for p in props["作成者"]["people"]]},
         }
         body = {
             "parent": {"database_id": NISSHO_REF_DB},
@@ -154,7 +154,7 @@ def copy_shyuho_records(monday: str, sunday: str):
             "T（次にやること）": {"rich_text": props["T（次にやること）"]["rich_text"]},
             "AI活用": {"rich_text": props["AI活用"]["rich_text"]},
             "作成日": {"date": props["作成日"]["date"]},
-            "作成者": {"people": props["作成者"]["people"]},
+            "作成者": {"people": [{"id": p["id"]} for p in props["作成者"]["people"]]},
             "アーカイブ状態": {"select": props["アーカイブ状態"]["select"]},
             "ステータス": {"select": props["ステータス"]["select"]},
         }
