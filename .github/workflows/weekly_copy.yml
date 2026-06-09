@@ -1,0 +1,20 @@
+name: Weekly Notion Copy
+
+on:
+  schedule:
+    - cron: "0 15 * * 5"  # 毎週金曜15:00 UTC = 土曜0:00 JST
+  workflow_dispatch:       # 手動実行も可能
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run weekly copy
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: python weekly_copy.py
